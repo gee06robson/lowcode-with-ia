@@ -1,0 +1,11 @@
+{
+    "app": {
+        "name": "prisma-front",
+        "env": "prod"
+    },
+    "minio": {
+        "endpoint": "http://62.72.3.45:9001",
+        "bucket": "lowcode-with-ai",
+        "prefix": "prisma"
+    }
+}

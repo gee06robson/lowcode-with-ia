@@ -1,0 +1,75 @@
+name: Build & Deploy to MinIO
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install & Build
+        run: |
+          npm ci
+          npm run build
+
+      - name: Upload dist artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build
+
+    # Recomendo segredos no GitHub (em vez de deixar no JSON)
+    env:
+      MINIO_ACCESS_KEY: ${{ secrets.MINIO_ACCESS_KEY }}
+      MINIO_SECRET_KEY: ${{ secrets.MINIO_SECRET_KEY }}
+
+    steps:
+      - name: Checkout (to read JSON)
+        uses: actions/checkout@v4
+
+      - name: Download dist artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Install tools (jq + mc)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq ca-certificates curl
+          sudo curl -sSL https://dl.min.io/client/mc/release/linux-amd64/mc -o /usr/local/bin/mc
+          sudo chmod +x /usr/local/bin/mc
+          mc --version
+
+      - name: Read JSON and upload dist to MinIO
+        run: |
+          # Ajuste o caminho do JSON aqui, se for diferente:
+          CONFIG_PATH="config/app.json"
+
+          MINIO_ENDPOINT="$(jq -r '.minio.endpoint' "$CONFIG_PATH")"
+          MINIO_BUCKET="$(jq -r '.minio.bucket' "$CONFIG_PATH")"
+          MINIO_PREFIX="$(jq -r '.minio.prefix // ""' "$CONFIG_PATH")"
+
+          # Conecta no MinIO
+          mc alias set myminio "$MINIO_ENDPOINT" "$MINIO_ACCESS_KEY" "$MINIO_SECRET_KEY"
+
+          # Garante bucket (não falha se já existir)
+          mc mb --ignore-existing "myminio/$MINIO_BUCKET"
+
+          # Sobe a pasta dist (espelha)
+          mc mirror --overwrite "dist/" "myminio/$MINIO_BUCKET/$MINIO_PREFIX"
